@@ -1,0 +1,10 @@
+[
+  {"name": "Seele",       "role": "DPS",     "spd": 115},
+  {"name": "Kafka",       "role": "Sub-DPS", "spd": 100},
+  {"name": "Silver Wolf", "role": "Support", "spd": 107},
+  {"name": "Ruan Mei",    "role": "Support", "spd": 104},
+  {"name": "Sparkle",     "role": "Support", "spd": 101},
+  {"name": "Bronya",      "role": "Support", "spd": 99},
+  {"name": "Fu Xuan",     "role": "Sustain", "spd": 100},
+  {"name": "Tingyun",     "role": "Sustain", "spd": 112}
+]

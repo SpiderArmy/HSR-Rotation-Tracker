@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <strong>{{ site.name }}</strong>
+      <span>{{ site.tagline }}</span>
+    </div>
+    <nav aria-label="Sections">
+      {% for s in sections %}
+        <button type="button" class="nav-btn" data-goto="{{ s.id }}">{{ s.label }}</button>
+      {% endfor %}
+    </nav>
+  </aside>
+
+  <main class="content">
+    {% for s in sections %}
+      <section id="{{ s.id }}" class="panel" aria-labelledby="{{ s.id }}-title">
+        {% include s.template %}
+      </section>
+    {% endfor %}
+  </main>
+</div>
+{% endblock %}

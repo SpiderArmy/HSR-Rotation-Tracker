@@ -1,0 +1,20 @@
+<h1 id="rotation-title" tabindex="-1">Rotation</h1>
+<div class="controls">
+  <label>Cycles after cycle 0
+    <select id="cycles"></select>
+  </label>
+  <label>Starting SP
+    <select id="sp0"></select>
+  </label>
+  <button type="button" class="btn" id="reset-actions">Reset actions</button>
+</div>
+<p id="rot-msg" class="output" role="status" aria-live="polite"></p>
+<div class="table-wrap">
+  <table class="rot">
+    <thead><tr><th>AV</th><th>Unit</th><th>Action</th><th>SP after</th></tr></thead>
+    <tbody id="rot-body"></tbody>
+  </table>
+</div>
+<div class="actions">
+  <button type="button" class="btn" data-goto="team">Edit team</button>
+</div>
