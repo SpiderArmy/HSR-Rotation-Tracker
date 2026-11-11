@@ -4,6 +4,14 @@
     pip install -r requirements.txt
     python app.py          # http://127.0.0.1:5000
 
+## One-Command Run
+    make run
+
+This command creates `.venv` if needed, installs dependencies, and starts Flask.
+
+Optional first-time setup only:
+    make setup
+
 ## Structure
     app.py                 App factory, page route, API routes
     config.py              Site name, tagline, and the SECTIONS list
