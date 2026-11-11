@@ -9,6 +9,83 @@ from flask import Flask, jsonify, render_template, request
 from config import SECTIONS, SITE, Config
 
 
+def _extract_speed(avatar: dict) -> float:
+    if not isinstance(avatar, dict):
+        return 0.0
+
+    direct = avatar.get("speed")
+    try:
+        if direct is not None:
+            val = float(direct)
+            if val > 0:
+                return val
+    except (TypeError, ValueError):
+        pass
+
+    stat_lists = [
+        avatar.get("stats"),
+        avatar.get("properties"),
+        avatar.get("fightProperties"),
+    ]
+    for stats in stat_lists:
+        if isinstance(stats, dict):
+            for key in ("speed", "spd", "SpeedDelta"):
+                value = stats.get(key)
+                try:
+                    if value is not None:
+                        val = float(value)
+                        if val > 0:
+                            return val
+                except (TypeError, ValueError):
+                    continue
+        if isinstance(stats, list):
+            for item in stats:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or item.get("type") or item.get("key") or "").lower()
+                if "speed" not in name and "spd" not in name:
+                    continue
+                value = item.get("value")
+                try:
+                    val = float(value)
+                    if val > 0:
+                        return val
+                except (TypeError, ValueError):
+                    continue
+    return 0.0
+
+
+def summarize_enka_hsr(payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        return {"character_count": 0, "character_names": [], "characters": []}
+
+    detail_info = payload.get("detailInfo") if isinstance(payload.get("detailInfo"), dict) else {}
+    candidates = [
+        payload.get("avatarDetailList"),
+        detail_info.get("avatarDetailList"),
+        payload.get("characters"),
+    ]
+    avatars = next((c for c in candidates if isinstance(c, list)), [])
+
+    names = []
+    characters = []
+    for avatar in avatars:
+        if not isinstance(avatar, dict):
+            continue
+        name = avatar.get("name") or avatar.get("avatarName") or ""
+        if not isinstance(name, str) or not name.strip():
+            continue
+        clean = name.strip()
+        names.append(clean)
+        characters.append({"name": clean, "spd": _extract_speed(avatar)})
+
+    return {
+        "character_count": len(avatars),
+        "character_names": names,
+        "characters": characters,
+    }
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config.from_object(Config)
@@ -35,7 +112,13 @@ def create_app() -> Flask:
         now = time.time()
         cached = enka_cache.get(uid)
         if cached and (now - cached["at"]) <= app.config["ENKA_CACHE_TTL_SECONDS"]:
-            return jsonify(ok=True, source="cache", uid=uid, data=cached["data"])
+            return jsonify(
+                ok=True,
+                source="cache",
+                uid=uid,
+                data=cached["data"],
+                summary=summarize_enka_hsr(cached["data"]),
+            )
 
         min_interval = app.config["ENKA_MIN_SECONDS_BETWEEN_REQUESTS"]
         elapsed = now - rate_limiter["last"]
@@ -66,7 +149,13 @@ def create_app() -> Flask:
             return jsonify(ok=False, error="Invalid JSON from Enka.Network."), 502
 
         enka_cache[uid] = {"at": time.time(), "data": payload}
-        return jsonify(ok=True, source="network", uid=uid, data=payload)
+        return jsonify(
+            ok=True,
+            source="network",
+            uid=uid,
+            data=payload,
+            summary=summarize_enka_hsr(payload),
+        )
 
     @app.errorhandler(404)
     def not_found(_):

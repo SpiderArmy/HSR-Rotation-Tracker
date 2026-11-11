@@ -42,6 +42,7 @@ const defaults = () => ({
   actions: {},
   importBaseSpeeds: [115, 100, 107, 100],
   relicIndex: {},
+  lastUidCharacters: [],
 });
 let state = defaults();
 try { state = { ...state, ...JSON.parse(localStorage.getItem("rotation") || "{}") }; } catch {}
@@ -50,6 +51,7 @@ if (!Array.isArray(state.importBaseSpeeds) || state.importBaseSpeeds.length !== 
   state.importBaseSpeeds = state.team.map((u) => Number(u.spd) || 0);
 }
 if (!state.relicIndex || typeof state.relicIndex !== "object") state.relicIndex = {};
+if (!Array.isArray(state.lastUidCharacters)) state.lastUidCharacters = [];
 const save = () => { try { localStorage.setItem("rotation", JSON.stringify(state)); } catch {} };
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const canonical = (s) => String(s || "").trim().toLowerCase();
@@ -63,6 +65,16 @@ const relicPanelTitle = document.getElementById("relic-panel-title");
 const relicPanelSummary = document.getElementById("relic-panel-summary");
 const relicPanelBody = document.getElementById("relic-panel-body");
 const importMsg = document.getElementById("relic-import-msg");
+const uidInput = document.getElementById("enka-uid");
+const uidLookupBtn = document.getElementById("enka-lookup");
+const uidApplyBtn = document.getElementById("enka-apply");
+const uidMsg = document.getElementById("enka-msg");
+const uidApplyMsg = document.getElementById("enka-apply-msg");
+const importReportEl = document.getElementById("import-report");
+const importReportSummaryEl = document.getElementById("import-report-summary");
+const importReportMatchedEl = document.getElementById("import-report-matched");
+const importReportUnmatchedEl = document.getElementById("import-report-unmatched");
+const importReportSkippedEl = document.getElementById("import-report-skipped");
 
 function renderSlots() {
   slotsEl.innerHTML = state.team.map((u, i) => `
@@ -196,40 +208,105 @@ function normalizeSubstats(item) {
   return out;
 }
 
-function normalizeRelics(raw) {
-  const relicRows = [
+function detectImportFormat(raw) {
+  if (raw?.format === "fribbels" || raw?.source === "fribbels") return "fribbels";
+  if (Array.isArray(raw?.relics) && raw?.metadata?.scanner) return "hsr-scanner";
+  if (Array.isArray(raw?.relics) && raw.relics.some((r) => r?.setKey || r?.slotKey)) return "fribbels";
+  if (Array.isArray(raw?.relics) || Array.isArray(raw?.inventory) || Array.isArray(raw?.data?.relics)) return "generic";
+  return "unknown";
+}
+
+function listRelicRows(raw) {
+  return [
     raw?.relics,
     raw?.relic_data,
     raw?.inventory,
     raw?.data?.relics,
     raw?.data?.inventory,
-  ].find((arr) => Array.isArray(arr));
-  if (!Array.isArray(relicRows)) return [];
+  ].find((arr) => Array.isArray(arr)) || [];
+}
 
-  return relicRows.map((item) => {
-    const substats = normalizeSubstats(item);
-    const mainName = String(pick(item, ["mainStat", "main_stat", "mainAffixName", "main_affix", "main"], ""));
-    const mainValue = pick(item, ["mainStatValue", "main_stat_value", "mainAffixValue", "main_value"], "");
-    const equipped = String(
-      pick(item, [
-        "equippedCharacter",
-        "equipped_character",
-        "equippedBy",
-        "equipped_by",
-        "location",
-        "wearer",
-      ], "")
-    );
-    return {
-      set: String(pick(item, ["set", "setName", "set_name"], "Unknown")),
-      slot: String(pick(item, ["slot", "slotName", "part"], "Unknown")),
-      mainStat: mainName,
-      mainStatValue: mainValue,
-      substats,
-      level: Number(pick(item, ["level", "lv", "lvl"], 0)) || 0,
-      equippedCharacter: equipped,
-    };
+function normalizeRelicRow(item) {
+  const substats = normalizeSubstats(item);
+  const mainName = String(pick(item, ["mainStat", "main_stat", "mainAffixName", "main_affix", "main", "mainStatKey"], ""));
+  const mainValue = pick(item, ["mainStatValue", "main_stat_value", "mainAffixValue", "main_value", "mainStatValueText"], "");
+  const equipped = String(
+    pick(item, [
+      "equippedCharacter",
+      "equipped_character",
+      "equippedBy",
+      "equipped_by",
+      "location",
+      "wearer",
+      "owner",
+      "equipped",
+    ], "")
+  ).trim();
+  return {
+    set: String(pick(item, ["set", "setName", "set_name", "setKey"], "Unknown")),
+    slot: String(pick(item, ["slot", "slotName", "part", "slotKey"], "Unknown")),
+    mainStat: mainName,
+    mainStatValue: mainValue,
+    substats,
+    level: Number(pick(item, ["level", "lv", "lvl"], 0)) || 0,
+    equippedCharacter: equipped,
+  };
+}
+
+function parseRelicRows(raw, format) {
+  const rows = listRelicRows(raw);
+  const relics = [];
+  const diagnostics = [];
+
+  rows.forEach((item, idx) => {
+    const row = normalizeRelicRow(item);
+    const reasons = [];
+
+    if (!row.equippedCharacter) reasons.push("missing equipped character");
+    if (!row.mainStat) reasons.push("missing main stat");
+    if (!row.slot || row.slot === "Unknown") reasons.push("unknown slot");
+    if (!Number.isFinite(row.level)) reasons.push("invalid level");
+
+    if (reasons.length) {
+      diagnostics.push({
+        row: idx + 1,
+        severity: reasons.includes("missing equipped character") ? "error" : "warning",
+        reason: reasons.join(", "),
+      });
+    }
+
+    // Equipped character is required for team mapping in this milestone.
+    if (!row.equippedCharacter) return;
+    relics.push(row);
   });
+
+  if (!rows.length) {
+    diagnostics.push({ row: 0, severity: "error", reason: "no relic array found in file" });
+  }
+
+  return {
+    format,
+    relics,
+    diagnostics,
+    totals: {
+      rows: rows.length,
+      accepted: relics.length,
+      skipped: Math.max(0, rows.length - relics.length),
+    },
+  };
+}
+
+function parseRelicExport(raw) {
+  const format = detectImportFormat(raw);
+  if (format === "unknown") {
+    return {
+      format,
+      relics: [],
+      diagnostics: [{ row: 0, severity: "error", reason: "unsupported export format" }],
+      totals: { rows: 0, accepted: 0, skipped: 0 },
+    };
+  }
+  return parseRelicRows(raw, format);
 }
 
 function extractCharacterSpeeds(raw) {
@@ -247,6 +324,13 @@ function extractCharacterSpeeds(raw) {
     if (resolved > 0) out[canonical(name)] = resolved;
   }
   return out;
+}
+
+function extractUidCharacters(payload) {
+  const chars = Array.isArray(payload?.summary?.characters) ? payload.summary.characters : [];
+  return chars
+    .map((ch) => ({ name: String(ch?.name || "").trim(), spd: Number(ch?.spd) || 0 }))
+    .filter((ch) => ch.name);
 }
 
 function buildRelicIndex(relics) {
@@ -285,6 +369,49 @@ function applyImportedSpeeds(index, charSpeeds) {
   });
 }
 
+function summarizeImportMatches(index) {
+  let matchedUnits = 0;
+  const matchedNames = [];
+  const unmatchedNames = [];
+  for (const u of state.team) {
+    const key = canonical(u.name);
+    if (!key) continue;
+    if (index[key]) {
+      matchedUnits++;
+      matchedNames.push(u.name);
+    } else {
+      unmatchedNames.push(u.name);
+    }
+  }
+  return { matchedUnits, matchedNames, unmatchedNames };
+}
+
+function renderImportReport(report) {
+  if (!report) {
+    importReportEl.hidden = true;
+    return;
+  }
+
+  importReportEl.hidden = false;
+  importReportSummaryEl.textContent =
+    `Format: ${report.format}. Rows: ${report.totals.rows}. Accepted: ${report.totals.accepted}. Skipped: ${report.totals.skipped}. Matched units: ${report.match.matchedUnits}/4.`;
+
+  importReportMatchedEl.innerHTML = report.match.matchedNames.length
+    ? report.match.matchedNames.map((name) => `<li>${esc(name)}</li>`).join("")
+    : "<li>None</li>";
+
+  importReportUnmatchedEl.innerHTML = report.match.unmatchedNames.length
+    ? report.match.unmatchedNames.map((name) => `<li>${esc(name)}</li>`).join("")
+    : "<li>None</li>";
+
+  const topSkipped = report.diagnostics.slice(0, 10);
+  const skippedRows = topSkipped.map((d) => `<li class=\"mono\">row ${d.row}: ${esc(d.reason)}</li>`);
+  if (report.diagnostics.length > topSkipped.length) {
+    skippedRows.push(`<li class=\"mono\">...and ${report.diagnostics.length - topSkipped.length} more</li>`);
+  }
+  importReportSkippedEl.innerHTML = skippedRows.length ? skippedRows.join("") : "<li>None</li>";
+}
+
 function openRelicPanel(slotIndex) {
   const unit = state.team[slotIndex];
   if (!unit) return;
@@ -316,15 +443,123 @@ document.getElementById("close-relic-panel").addEventListener("click", () => {
   relicPanel.hidden = true;
 });
 
+uidLookupBtn.addEventListener("click", async () => {
+  const uid = String(uidInput.value || "").trim();
+  if (!/^\d{9}$/.test(uid)) {
+    uidMsg.textContent = "Enter a valid 9-digit UID.";
+    uidMsg.classList.add("error");
+    return;
+  }
+
+  uidLookupBtn.disabled = true;
+  uidMsg.textContent = "Checking Enka UID...";
+  uidMsg.classList.remove("error");
+  uidApplyMsg.textContent = "";
+
+  try {
+    const res = await api(`/api/enka/uid/${uid}`);
+    const count = Number(res?.summary?.character_count) || 0;
+    const source = res?.source || "network";
+    const names = Array.isArray(res?.summary?.character_names) ? res.summary.character_names.filter(Boolean) : [];
+    const preview = names.length ? ` Characters: ${names.slice(0, 6).join(", ")}${names.length > 6 ? "..." : ""}.` : "";
+    const caution = count < 4
+      ? " Coverage is low for team auto-fill; verify manually before relying on UID lookup."
+      : "";
+    uidMsg.textContent = `UID ${uid} returned ${count} character(s) from ${source}.${preview}${caution}`;
+
+    state.lastUidCharacters = extractUidCharacters(res);
+    uidApplyBtn.disabled = state.lastUidCharacters.length === 0;
+    save();
+  } catch (err) {
+    uidMsg.textContent = err.message || "UID lookup failed.";
+    uidMsg.classList.add("error");
+    state.lastUidCharacters = [];
+    uidApplyBtn.disabled = true;
+  } finally {
+    uidLookupBtn.disabled = false;
+  }
+});
+
+uidApplyBtn.addEventListener("click", () => {
+  const incoming = Array.isArray(state.lastUidCharacters) ? state.lastUidCharacters.slice() : [];
+  if (!incoming.length) {
+    uidApplyMsg.textContent = "No UID characters are available to apply yet.";
+    uidApplyMsg.classList.add("error");
+    return;
+  }
+
+  uidApplyMsg.classList.remove("error");
+  const teamTaken = new Set();
+  const usedIncoming = new Set();
+  const applied = [];
+
+  // First pass: name matches to existing slots.
+  for (let i = 0; i < state.team.length; i++) {
+    const slotName = canonical(state.team[i].name);
+    const idx = incoming.findIndex((c, j) => !usedIncoming.has(j) && canonical(c.name) === slotName);
+    if (idx < 0) continue;
+    usedIncoming.add(idx);
+    teamTaken.add(i);
+    if (incoming[idx].spd > 0) {
+      state.team[i].spd = round1(incoming[idx].spd);
+      state.importBaseSpeeds[i] = state.team[i].spd;
+    }
+    state.team[i].name = incoming[idx].name;
+    applied.push(incoming[idx].name);
+  }
+
+  // Second pass: fill remaining slots in order.
+  for (let i = 0; i < state.team.length; i++) {
+    if (teamTaken.has(i)) continue;
+    const idx = incoming.findIndex((_, j) => !usedIncoming.has(j));
+    if (idx < 0) break;
+    usedIncoming.add(idx);
+    state.team[i].name = incoming[idx].name;
+    if (incoming[idx].spd > 0) {
+      state.team[i].spd = round1(incoming[idx].spd);
+      state.importBaseSpeeds[i] = state.team[i].spd;
+    }
+    applied.push(incoming[idx].name);
+  }
+
+  const skipped = incoming
+    .filter((_, i) => !usedIncoming.has(i))
+    .map((c) => c.name);
+  state.actions = {};
+  save();
+  renderSlots();
+  renderRotation();
+
+  uidApplyMsg.textContent = `Applied ${applied.length} UID character(s): ${applied.join(", ") || "none"}.${skipped.length ? ` Skipped: ${skipped.join(", ")}.` : ""}`;
+});
+
+uidInput.addEventListener("input", () => {
+  uidInput.value = uidInput.value.replace(/\D+/g, "").slice(0, 9);
+});
+
+uidInput.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  uidLookupBtn.click();
+});
+
 document.getElementById("relic-file").addEventListener("change", async (e) => {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
   try {
     const text = await file.text();
     const raw = JSON.parse(text);
-    const relics = normalizeRelics(raw);
-    if (!relics.length) throw new Error("No relic entries were found in this file.");
-    const index = buildRelicIndex(relics);
+    const parsed = parseRelicExport(raw);
+    if (!parsed.relics.length) {
+      const detail = parsed.diagnostics[0]?.reason || "No relic entries were found in this file.";
+      throw new Error(detail);
+    }
+
+    const index = buildRelicIndex(parsed.relics);
+    if (!Object.keys(index).length) {
+      throw new Error("Relics were found, but none had an equipped character field to map against your team.");
+    }
+
     const charSpeeds = extractCharacterSpeeds(raw);
     state.relicIndex = index;
     applyImportedSpeeds(index, charSpeeds);
@@ -332,12 +567,27 @@ document.getElementById("relic-file").addEventListener("change", async (e) => {
     save();
     renderSlots();
     renderRotation();
+
+    const match = summarizeImportMatches(index);
+    renderImportReport({
+      format: parsed.format,
+      diagnostics: parsed.diagnostics,
+      totals: parsed.totals,
+      match,
+    });
+
     const withRelics = Object.keys(index).length;
-    importMsg.textContent = `Imported ${relics.length} relics across ${withRelics} character(s).`;
+    const unmatchedText = match.unmatchedNames.length
+      ? ` No relics matched: ${match.unmatchedNames.join(", ")}.`
+      : "";
+    importMsg.textContent =
+      `Imported ${parsed.relics.length} relics across ${withRelics} character(s). ` +
+      `Matched ${match.matchedUnits}/4 team units.${unmatchedText}`;
     importMsg.classList.remove("error");
   } catch (err) {
     importMsg.textContent = err.message || "Could not parse this JSON file.";
     importMsg.classList.add("error");
+    renderImportReport(null);
   } finally {
     e.target.value = "";
   }
@@ -392,4 +642,5 @@ document.getElementById("rot-body").addEventListener("click", (e) => {
 
 // ---- Start ----
 renderSlots(); renderRotation();
+uidApplyBtn.disabled = !Array.isArray(state.lastUidCharacters) || state.lastUidCharacters.length === 0;
 api("/api/characters").then((list) => { presets = list; renderSlots(); }).catch(() => {});

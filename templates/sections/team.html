@@ -1,5 +1,14 @@
 <h1 id="team-title" tabindex="-1">Team</h1>
 <p>Choose a preset or type your own name and total speed for each slot. Use the speed shown on the character screen, with relics and buffs included.</p>
+<div class="uid-row">
+  <label>Enka UID lookup
+    <input id="enka-uid" type="text" inputmode="numeric" maxlength="9" placeholder="9-digit UID">
+  </label>
+  <button type="button" class="btn" id="enka-lookup">Check UID</button>
+  <button type="button" class="btn" id="enka-apply" disabled>Apply UID Characters</button>
+  <p id="enka-msg" class="output" role="status" aria-live="polite"></p>
+  <p id="enka-apply-msg" class="output" role="status" aria-live="polite"></p>
+</div>
 <div class="import-row">
   <label class="file-input">
     <span>Import scanner JSON</span>
@@ -7,6 +16,23 @@
   </label>
   <p id="relic-import-msg" class="output" role="status" aria-live="polite"></p>
 </div>
+<section id="import-report" class="import-report" hidden aria-live="polite">
+  <p id="import-report-summary" class="note"></p>
+  <div class="import-report-grid">
+    <div>
+      <h2>Matched</h2>
+      <ul id="import-report-matched"></ul>
+    </div>
+    <div>
+      <h2>Unmatched</h2>
+      <ul id="import-report-unmatched"></ul>
+    </div>
+    <div>
+      <h2>Skipped rows</h2>
+      <ul id="import-report-skipped"></ul>
+    </div>
+  </div>
+</section>
 <div id="slots" class="slots"></div>
 <div id="relic-panel" class="relic-panel" hidden>
   <div class="relic-panel-head">
