@@ -1,6 +1,26 @@
 <h1 id="team-title" tabindex="-1">Team</h1>
 <p>Choose a preset or type your own name and total speed for each slot. Use the speed shown on the character screen, with relics and buffs included.</p>
+<div class="import-row">
+  <label class="file-input">
+    <span>Import scanner JSON</span>
+    <input id="relic-file" type="file" accept="application/json,.json">
+  </label>
+  <p id="relic-import-msg" class="output" role="status" aria-live="polite"></p>
+</div>
 <div id="slots" class="slots"></div>
+<div id="relic-panel" class="relic-panel" hidden>
+  <div class="relic-panel-head">
+    <strong id="relic-panel-title">Relics</strong>
+    <button type="button" class="btn" id="close-relic-panel">Close</button>
+  </div>
+  <p id="relic-panel-summary" class="note"></p>
+  <div class="table-wrap">
+    <table class="rot relic-table">
+      <thead><tr><th>Slot</th><th>Set</th><th>Main</th><th>Substats</th><th>Lv</th></tr></thead>
+      <tbody id="relic-panel-body"></tbody>
+    </table>
+  </div>
+</div>
 <div class="actions">
   <button type="button" class="btn primary" data-goto="rotation">View turn order</button>
 </div>

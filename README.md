@@ -18,3 +18,7 @@
 - **Link to a section from anywhere:** add `data-goto="section-id"` to any button or link.
 - **Add an API route:** define it in `app.py` under `/api/...` and call it with the `api()` helper in `app.js`.
 - **Restyle:** change the variables at the top of `style.css`.
+
+## Planning
+- Roadmap and milestone scopes live in `docs/ROADMAP.md`.
+- GitHub issue templates for milestones live in `.github/ISSUE_TEMPLATE/`.
